@@ -1,0 +1,105 @@
+Access and Secret Access key should be generated in order to run terraform commands for provisioning the infrastructure as well as to access the EKS cluster
+aws configure --profile testing
+
+Link to install kubectl:
+https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/
+
+Link to install awscli:
+https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+
+cd /opt/terraform-manifests
+
+terraform init
+terraform validate
+terraform plan
+terraform apply --auto-approve
+terraform output
+terraform show
+terraform state list
+terraform output kubeconfig
+
+curl -o aws-iam-authenticator https://s3.us-west-2.amazonaws.com/amazon-eks/1.21.2/2021-07-05/bin/linux/amd64/aws-iam-authenticator
+chmod +x ./aws-iam-authenticator
+mkdir -p $HOME/bin && cp ./aws-iam-authenticator $HOME/bin/aws-iam-authenticator && export PATH=$PATH:$HOME/bin
+echo 'export PATH=$PATH:$HOME/bin' >> ~/.bashrc
+aws-iam-authenticator version
+/usr/local/bin/aws eks --region eu-west-1 update-kubeconfig --name terraform-eks-demo --profile testing
+kubectl cluster-info
+kubectl get nodes
+
+Install metrics-server
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+kubectl get deployment metrics-server -n kube-system
+
+# Deploy Cluster Autoscaler
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/autoscaler/master/cluster-autoscaler/cloudprovider/aws/examples/cluster-autoscaler-autodiscover.yaml
+
+# Add the cluster-autoscaler.kubernetes.io/safe-to-evict annotation to the deployment
+kubectl -n kube-system annotate deployment.apps/cluster-autoscaler cluster-autoscaler.kubernetes.io/safe-to-evict="false"
+
+# Edit Cluster Autoscaler Deployment to add Cluster name and two more parameters
+kubectl -n kube-system edit deployment.apps/cluster-autoscaler
+
+Note:
+Add cluster name
+        - --node-group-auto-discovery=asg:tag=k8s.io/cluster-autoscaler/enabled,k8s.io/cluster-autoscaler/<YOUR CLUSTER NAME>
+
+Add two more parameters
+        - --balance-similar-node-groups
+        - --skip-nodes-with-system-pods=false
+		
+# Set the Cluster Autoscaler Image related to our current EKS Cluster version
+kubectl -n kube-system set image deployment.apps/cluster-autoscaler cluster-autoscaler=us.gcr.io/k8s-artifacts-prod/autoscaling/cluster-autoscaler:v1.22.1
+
+#Cluster Autoscaler Image repository Link:
+https://console.cloud.google.com/gcr/images/k8s-artifacts-prod/US/autoscaling/cluster-autoscaler
+
+Verify Image version got updated
+kubectl -n kube-system get deployment.apps/cluster-autoscaler -o yaml
+
+View Cluster Autoscaler logs to verify that it is monitoring your cluster load.
+kubectl -n kube-system logs -f deployment.apps/cluster-autoscaler
+
+cd /opt/flask-docker-example
+docker build -t 263884695115.dkr.ecr.eu-west-1.amazonaws.com/sample-test:latest . --no-cache
+/usr/local/bin/aws ecr get-login-password --region eu-west-1 | docker login --username AWS --password-stdin 263884695115.dkr.ecr.eu-west-1.amazonaws.com
+docker push 263884695115.dkr.ecr.eu-west-1.amazonaws.com/sample-test:latest
+
+cd /opt/k8s-manifests
+kubectl create -f pod-priority-class.yaml
+kubectl create -f deployment-service-flask-app.yaml
+
+kubectl get pods -o wide
+kubectl get svc
+Edit the security group of any one of the worker node and open the nodeport from the type (loadbalancer) of the application service and allow the same 
+in order to access the sample flask application from the browser.
+
+kubectl create -f HPA-flask-cpu.yaml
+
+For HPA pod autoscaling based on cpu utilization, execute the below command
+kubectl run apache-bench -i --tty --rm --image=httpd -- ab -n 500000 -c 1000 http://flask-k8s-service.default.svc.cluster.local:8080/
+
+Execute below command in another terminal
+kubectl get pods
+
+kubectl create -f HPA-flask-memory.yaml
+
+For HPA pod autoscaling based on memory utilization, follow the below procedure
+cd /opt
+wget https://get.helm.sh/helm-v3.9.2-linux-amd64.tar.gz
+tar -xvzf helm-v3.9.2-linux-amd64.tar.gz
+mv linux-amd64/helm /usr/local/bin/helm
+helm version
+cd /opt/k8s-manifests
+helm repo add chaos-mesh https://charts.chaos-mesh.org
+helm search repo chaos-mesh
+kubectl create ns chaos-testing
+helm install chaos-mesh chaos-mesh/chaos-mesh -n=chaos-testing --version 2.3.0
+kubectl get pods -n chaos-testing
+
+kubectl apply -f memory-stress.yaml
+kubectl get stresschaos.chaos-mesh.org -n chaos-testing
+kubectl describe stresschaos.chaos-mesh.org memory-stress-example -n chaos-testing
+
+Execute below command in another terminal
+kubectl get pods
