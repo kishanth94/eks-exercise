@@ -1,0 +1,18 @@
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: memory-stress-example
+  namespace: chaos-testing
+spec:
+  mode: all
+  selector:
+    labelSelectors:
+      app: flask-k8s
+    namespaces:
+    - default
+  stressors:
+    memory:
+      workers: 4
+      size: '600MB'
+      options: [""]
+  duration: 20s
